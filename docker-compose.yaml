@@ -114,9 +114,24 @@ services:
        condition: service_healthy
     restart: always
 
+  # planner:
+  #     build:
+  #       context: ./PLANNER
+  #     container_name: my_se4as_pr_PLANNER
+  #     env_file:
+  #       - .env   
+  #     networks:
+  #     - network
+  #     depends_on:
+  #       mqtt:
+  #         condition: service_healthy
+  #       influxdb:
+  #         condition: service_healthy
+  #     restart: always
+  
   planner:
       build:
-        context: ./PLANNER
+        context: ./PLANNER_LLM
       container_name: my_se4as_pr_PLANNER
       env_file:
         - .env   
@@ -129,6 +144,8 @@ services:
           condition: service_healthy
       restart: always
   
+
+
   executor:
       build:
         context: ./EXECUTOR

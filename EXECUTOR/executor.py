@@ -27,6 +27,7 @@ stop_event = threading.Event()
 mqtt_client = Client("Executor")
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
 
+
 def on_connect(client, userdata, flags, rc):
     """Callback per la connessione al broker MQTT."""
     global is_connected
@@ -39,18 +40,19 @@ def on_connect(client, userdata, flags, rc):
     else:
         print(f"EXECUTOR: Connection failed with return code {rc}")
 
+
 def on_disconnect(client, userdata, rc):
     """Callback per la disconnessione dal broker MQTT."""
     global is_connected
     print("EXECUTOR: Disconnected from MQTT Broker.")
     is_connected = False
 
+
 def on_message(client, userdata, msg):
     """Gestione dei messaggi MQTT."""
-    global gate_states
     topic = msg.topic
     try:
-        payload = json.loads(msg.payload)
+        payload = json.loads(msg.payload.decode())
     except json.JSONDecodeError:
         print(f"EXECUTOR: Invalid JSON payload on topic {topic}")
         return
@@ -58,34 +60,76 @@ def on_message(client, userdata, msg):
     if topic == f"{DAM_UNIQUE_ID}/{PLANNER_TOPIC_PREFIX}":
         process_command(payload)
 
+
 def process_command(payload):
-    """Elabora i comandi ricevuti dal Planner."""
+    """
+    Elabora i comandi ricevuti dal Planner.
+
+    Supporta:
+    - planner originale:    { "Gate_1": 50, "Gate_2": 0, ... }
+    - planner LLM:         { "actions": {...}, "reason": "..." }
+    """
     global gate_states
+
+    actions = None
+    reason = None
+
+    # Nuovo formato LLM: { "actions": {...}, "reason": "..." }
+    if isinstance(payload, dict) and "actions" in payload:
+        actions = payload["actions"]
+        reason = payload.get("reason", "No reason provided (LLM planner)")
+        print("EXECUTOR: Detected LLM planner payload.")
+
+    # Formato originale: l'intero dict è il mapping gate -> percentage
+    elif isinstance(payload, dict):
+        actions = payload
+        reason = "Original planner decision (no explanation)."
+        print("EXECUTOR: Detected ORIGINAL planner payload.")
+
+    else:
+        print(f"EXECUTOR: Unsupported payload format: {payload}")
+        return
+
+    print(f"EXECUTOR: Reason: {reason}")
+
+    if not isinstance(actions, dict):
+        print(f"EXECUTOR: 'actions' is not a dict: {actions}")
+        return
+
     try:
-        for gate_id, open_percentage in payload.items():
+        for gate_id, open_percentage in actions.items():
             if not isinstance(open_percentage, (int, float)):
                 print(f"EXECUTOR: Invalid open_percentage for gate {gate_id}: {open_percentage}")
                 continue
 
+            # Limita tra 0 e 100
+            clamped = max(0, min(100, float(open_percentage)))
+
             with data_lock:
                 gate_states[gate_id] = {
-                    "open_percentage": max(0, min(100, open_percentage))  # Limita tra 0 e 100
+                    "open_percentage": clamped,
+                    "reason": reason,
                 }
-                print(f"EXECUTOR: Command processed - Gate {gate_id} set to {open_percentage}%")
-                send_gate_command(gate_id, open_percentage)
+
+            print(f"EXECUTOR: Command processed - Gate {gate_id} set to {clamped}%")
+            send_gate_command(gate_id, clamped)
     except Exception as e:
         print(f"EXECUTOR: Error processing command: {e}")
+
 
 def send_gate_command(gate_id, open_percentage):
     """Pubblica il comando per una specifica porta sul topic MQTT appropriato."""
     try:
         command_topic = f"{DAM_UNIQUE_ID}/{GATE_TOPIC_PREFIX}/{gate_id}/command"
-
         payload = {"open_percentage": open_percentage}
         mqtt_client.publish(command_topic, json.dumps(payload), qos=1)
-        print(f"EXECUTOR: Published command - Gate {gate_id}: {open_percentage}% on topic {command_topic}")
+        print(
+            f"EXECUTOR: Published command - Gate {gate_id}: "
+            f"{open_percentage}% on topic {command_topic}"
+        )
     except Exception as e:
         print(f"EXECUTOR: Error sending gate command: {e}")
+
 
 def reconnect_mqtt():
     """Gestisce i tentativi di riconnessione al broker."""
@@ -99,6 +143,7 @@ def reconnect_mqtt():
         except Exception as e:
             print(f"EXECUTOR: Reconnection failed: {e}")
             time.sleep(10)
+
 
 if __name__ == "__main__":
     try:

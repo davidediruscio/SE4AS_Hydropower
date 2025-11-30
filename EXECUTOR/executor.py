@@ -120,6 +120,7 @@ def process_command(payload):
 def send_gate_command(gate_id, open_percentage):
     """Pubblica il comando per una specifica porta sul topic MQTT appropriato."""
     try:
+
         command_topic = f"{DAM_UNIQUE_ID}/{GATE_TOPIC_PREFIX}/{gate_id}/command"
         payload = {"open_percentage": open_percentage}
         mqtt_client.publish(command_topic, json.dumps(payload), qos=1)
@@ -127,6 +128,11 @@ def send_gate_command(gate_id, open_percentage):
             f"EXECUTOR: Published command - Gate {gate_id}: "
             f"{open_percentage}% on topic {command_topic}"
         )
+
+        state_topic = f"{DAM_UNIQUE_ID}/{GATE_TOPIC_PREFIX}/{gate_id}/state"
+        payload = {"gate_id": gate_id, "open_percentage": open_percentage}
+        mqtt_client.publish(state_topic, json.dumps(payload), qos=1)
+
     except Exception as e:
         print(f"EXECUTOR: Error sending gate command: {e}")
 

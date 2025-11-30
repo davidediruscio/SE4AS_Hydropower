@@ -144,7 +144,21 @@ services:
           condition: service_healthy
       restart: always
   
-
+  ollama:
+    container_name: ollama
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    entrypoint: >
+      bash -c "
+      ollama serve &
+      sleep 3 &&
+      ollama pull gemma3:1b &&
+      wait
+      "
 
   executor:
       build:
@@ -215,6 +229,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 30
+
+volumes:
+  ollama_data:
 
 networks:
   network:
